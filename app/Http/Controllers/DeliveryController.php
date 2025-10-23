@@ -8,10 +8,31 @@ use App\Models\Driver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 
+
+/**
+ * @OA\Tag(
+ *     name="Deliveries",
+ *     description="Endpoints de gestion des livraisons"
+ * )
+ */
 class DeliveryController extends Controller
 {
     /**
-     * Liste des livraisons (filtrée par rôle)
+     * @OA\Get(
+     *     path="/deliveries",
+     *     tags={"Deliveries"},
+     *     summary="Liste des livraisons",
+     *     description="Récupère la liste des livraisons (filtrée selon le rôle)",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Response(
+     *         response=200,
+     *         description="Liste des livraisons",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="data", type="array", @OA\Items(type="object"))
+     *         )
+     *     )
+     * )
      */
     public function index(Request $request)
     {
@@ -46,7 +67,32 @@ class DeliveryController extends Controller
     }
 
     /**
-     * Créer une nouvelle livraison (Client seulement)
+     * @OA\Post(
+     *     path="/deliveries",
+     *     tags={"Deliveries"},
+     *     summary="Créer une livraison",
+     *     description="Créer une nouvelle livraison (client seulement)",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"pickup_address", "delivery_address", "package_description", "package_weight", "urgency"},
+     *             @OA\Property(property="pickup_address", type="string", example="Point E, Dakar"),
+     *             @OA\Property(property="delivery_address", type="string", example="Plateau, Dakar"),
+     *             @OA\Property(property="package_description", type="string", example="Documents importants"),
+     *             @OA\Property(property="package_weight", type="number", format="float", example=0.5),
+     *             @OA\Property(property="urgency", type="string", enum={"low", "standard", "urgent"}, example="standard")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Livraison créée avec succès"
+     *     ),
+     *     @OA\Response(
+     *         response=403,
+     *         description="Accès non autorisé"
+     *     )
+     * )
      */
     public function store(Request $request)
     {
