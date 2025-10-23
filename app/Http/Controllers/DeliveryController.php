@@ -61,6 +61,11 @@ class DeliveryController extends Controller
         $request->validate([
             'pickup_address' => 'required|string|max:500',
             'delivery_address' => 'required|string|max:500',
+            'receiver_name' => 'required|string|max:255',
+            'receiver_phone' => 'required|string|max:20',
+            'delivery_instructions' => 'nullable|string|max:1000',
+            'sender_name' => 'nullable|string|max:255',
+            'sender_phone' => 'nullable|string|max:20',
             'package_description' => 'required|string|max:1000',
             'package_weight' => 'required|numeric|min:0.1|max:50',
             'urgency' => 'required|in:low,standard,urgent',
@@ -86,6 +91,11 @@ class DeliveryController extends Controller
             $delivery = Delivery::create([
                 'pickup_address' => $request->pickup_address,
                 'delivery_address' => $request->delivery_address,
+                'receiver_name' => $request->receiver_name,
+                'receiver_phone' => $request->receiver_phone,
+                'delivery_instructions' => $request->delivery_instructions,
+                'sender_name' => $request->sender_name ?? $client->first_name . ' ' . $client->last_name,
+                'sender_phone' => $request->sender_phone ?? $client->phone,
                 'package_description' => $request->package_description,
                 'package_weight' => $request->package_weight,
                 'urgency' => $request->urgency,

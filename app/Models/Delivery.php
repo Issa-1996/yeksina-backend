@@ -12,6 +12,11 @@ class Delivery extends Model
     protected $fillable = [
         'pickup_address',
         'delivery_address',
+        'receiver_name',        // ← AJOUT
+        'receiver_phone',       // ← AJOUT
+        'delivery_instructions', // ← AJOUT
+        'sender_name',          // ← AJOUT
+        'sender_phone',         // ← AJOUT
         'package_description',
         'package_weight',
         'urgency',
