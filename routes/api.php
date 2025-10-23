@@ -37,10 +37,11 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::delete('/drivers/{id}/reject', [AdminController::class, 'rejectDriver']);
     });
 
-    // Livraisons
+    // Livraisons (routes supplémentaires)
     Route::prefix('deliveries')->group(function () {
         Route::get('/', [DeliveryController::class, 'index']);
         Route::post('/', [DeliveryController::class, 'store']);
+        Route::get('{id}', [DeliveryController::class, 'show']);
         Route::post('{id}/accept', [DeliveryController::class, 'acceptDelivery']);
     });
 
@@ -49,6 +50,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('profile', [DriverController::class, 'getProfile']);
         Route::post('availability', [DriverController::class, 'updateAvailability']);
         Route::get('new-deliveries', [DriverController::class, 'getNewDeliveries']);
+        Route::get('delivery-history', [DriverController::class, 'getDeliveryHistory']);
+        Route::post('deliveries/{id}/status', [DriverController::class, 'updateDeliveryStatus']);
     });
 });
 

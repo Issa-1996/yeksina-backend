@@ -9,123 +9,66 @@ class Delivery extends Model
 {
     use HasFactory;
 
-    const STATUS_PENDING = 'pending';
-    const STATUS_ACCEPTED = 'accepted';
-    const STATUS_PICKING_UP = 'picking_up';
-    const STATUS_ON_ROUTE = 'on_route';
-    const STATUS_DELIVERED = 'delivered';
-    const STATUS_CANCELLED = 'cancelled';
-
     protected $fillable = [
+        'pickup_address',
+        'delivery_address',
+        'package_description',
+        'package_weight',
+        'urgency',
+        'price',
+        'status',
         'client_id',
         'driver_id',
-        'status',
-        'pickup_address',
-        'pickup_lat',
-        'pickup_lng',
-        'destination_address',
-        'destination_lat',
-        'destination_lng',
-        'recipient_name',
-        'recipient_phone',
-        'package_type',
-        'estimated_weight',
-        'price',
-        'security_code',
-        'security_code_validated',
-        'client_notes',
         'accepted_at',
-        'picking_up_at',
-        'on_route_at',
+        'picked_up_at',
         'delivered_at',
     ];
 
     protected $casts = [
-        'pickup_lat' => 'decimal:8',
-        'pickup_lng' => 'decimal:8',
-        'destination_lat' => 'decimal:8',
-        'destination_lng' => 'decimal:8',
-        'estimated_weight' => 'decimal:2',
+        'package_weight' => 'decimal:2',
         'price' => 'decimal:2',
-        'security_code_validated' => 'boolean',
         'accepted_at' => 'datetime',
-        'picking_up_at' => 'datetime',
-        'on_route_at' => 'datetime',
+        'picked_up_at' => 'datetime',
         'delivered_at' => 'datetime',
     ];
 
-    // Relation avec Client
+    /**
+     * Relation avec le client
+     */
     public function client()
     {
         return $this->belongsTo(Client::class);
     }
 
-    // Relation avec Driver
+    /**
+     * Relation avec le driver
+     */
     public function driver()
     {
         return $this->belongsTo(Driver::class);
     }
 
-    // Scopes pour les statuts
+    /**
+     * Scope pour les livraisons en attente
+     */
     public function scopePending($query)
     {
-        return $query->where('status', self::STATUS_PENDING);
+        return $query->where('status', 'pending');
     }
 
-    public function scopeAccepted($query)
+    /**
+     * Scope pour les livraisons d'un driver
+     */
+    public function scopeForDriver($query, $driverId)
     {
-        return $query->where('status', self::STATUS_ACCEPTED);
+        return $query->where('driver_id', $driverId);
     }
 
-    public function scopeActive($query)
+    /**
+     * Scope pour les livraisons d'un client
+     */
+    public function scopeForClient($query, $clientId)
     {
-        return $query->whereIn('status', [
-            self::STATUS_ACCEPTED, 
-            self::STATUS_PICKING_UP, 
-            self::STATUS_ON_ROUTE
-        ]);
-    }
-
-    // Méthodes pour changer le statut
-    public function markAsAccepted()
-    {
-        $this->update([
-            'status' => self::STATUS_ACCEPTED,
-            'accepted_at' => now(),
-        ]);
-    }
-
-    public function markAsPickingUp()
-    {
-        $this->update([
-            'status' => self::STATUS_PICKING_UP,
-            'picking_up_at' => now(),
-        ]);
-    }
-
-    public function markAsOnRoute()
-    {
-        $this->update([
-            'status' => self::STATUS_ON_ROUTE,
-            'on_route_at' => now(),
-        ]);
-    }
-
-    public function markAsDelivered()
-    {
-        $this->update([
-            'status' => self::STATUS_DELIVERED,
-            'delivered_at' => now(),
-        ]);
-    }
-
-    // Vérifier si le code de sécurité est valide
-    public function validateSecurityCode($code)
-    {
-        if ($this->security_code == $code) {
-            $this->update(['security_code_validated' => true]);
-            return true;
-        }
-        return false;
+        return $query->where('client_id', $clientId);
     }
 }

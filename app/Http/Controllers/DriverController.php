@@ -4,130 +4,196 @@ namespace App\Http\Controllers;
 
 use App\Models\Driver;
 use App\Models\Delivery;
-use App\Services\MatchingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\DB;
 
 class DriverController extends Controller
 {
-    protected $matchingService;
-
-    public function __construct(MatchingService $matchingService)
-    {
-        $this->matchingService = $matchingService;
-    }
-
     /**
-     * Mettre à jour la disponibilité du livreur
-     */
-    public function updateAvailability(Request $request)
-    {
-        $request->validate([
-            'status' => 'required|in:online,offline'
-        ]);
-
-        $driver = auth()->user()->userable;
-        $isOnline = $request->status === 'online';
-
-        $driver->update([
-            'is_online' => $isOnline,
-            'last_online_at' => $isOnline ? now() : $driver->last_online_at,
-        ]);
-
-        return response()->json([
-            'success' => true,
-            'message' => $isOnline ? 'Vous êtes maintenant en ligne.' : 'Vous êtes maintenant hors ligne.',
-            'data' => [
-                'is_online' => $driver->is_online,
-                'last_online_at' => $driver->last_online_at,
-            ]
-        ]);
-    }
-
-    /**
-     * Récupérer les nouvelles courses disponibles
-     */
-    public function getNewDeliveries(Request $request)
-    {
-        $driver = auth()->user()->userable;
-
-        if (!$driver->is_online) {
-            return response()->json([
-                'success' => false,
-                'message' => 'Vous devez être en ligne pour voir les nouvelles courses.'
-            ], 400);
-        }
-
-        // Récupérer la position actuelle du driver (simulée pour l'instant)
-        $currentLat = 14.6928; // À remplacer par GPS réel
-        $currentLng = -17.4467;
-
-        $availableDeliveries = Delivery::where('status', Delivery::STATUS_PENDING)
-            ->whereDoesntHave('driver') // Pas encore attribuée
-            ->with(['client.user'])
-            ->get()
-            ->map(function ($delivery) use ($currentLat, $currentLng) {
-                $distance = $this->calculateSimpleDistance(
-                    $currentLat, $currentLng,
-                    $delivery->pickup_lat, $delivery->pickup_lng
-                );
-
-                return [
-                    'id' => $delivery->id,
-                    'pickup_address' => $delivery->pickup_address,
-                    'destination_address' => $delivery->destination_address,
-                    'distance' => round($distance, 1),
-                    'price' => $delivery->price,
-                    'package_type' => $delivery->package_type,
-                    'created_at' => $delivery->created_at->format('d M Y H:i'),
-                    'client_name' => $delivery->client->full_name ?? 'Client',
-                    'estimated_time' => $this->estimateTime($distance),
-                ];
-            })
-            ->sortBy('distance')
-            ->values();
-
-        return response()->json([
-            'success' => true,
-            'data' => $availableDeliveries
-        ]);
-    }
-
-    /**
-     * Récupérer le profil du livreur
+     * Récupérer le profil du driver connecté
      */
     public function getProfile()
     {
-        $driver = auth()->user()->userable->load('user');
+        $user = auth()->user();
+
+        if (!$user->isDriver()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès réservé aux drivers.'
+            ], 403);
+        }
+
+        $driver = $user->userable->load('user');
 
         return response()->json([
             'success' => true,
             'data' => [
                 'driver' => $driver,
-                'stats' => [
-                    'current_balance' => $driver->current_balance,
-                    'total_earnings' => $driver->total_earnings,
-                    'total_deliveries' => $driver->total_deliveries,
-                    'average_rating' => $driver->average_rating,
-                    'is_online' => $driver->is_online,
-                ]
+                'stats' => $this->getDriverStats($driver->id)
             ]
         ]);
     }
 
     /**
-     * Calcul de distance simplifié
+     * Mettre à jour la disponibilité du driver
      */
-    private function calculateSimpleDistance($lat1, $lng1, $lat2, $lng2): float
+    public function updateAvailability(Request $request)
     {
-        return sqrt(pow($lat2 - $lat1, 2) + pow($lng2 - $lng1, 2)) * 111;
+        $user = auth()->user();
+
+        if (!$user->isDriver()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès réservé aux drivers.'
+            ], 403);
+        }
+
+        $request->validate([
+            'available' => 'required|boolean'
+        ]);
+
+        $driver = $user->userable;
+        $driver->update(['is_available' => $request->available]);
+
+        return response()->json([
+            'success' => true,
+            'message' => $request->available ?
+                'Vous êtes maintenant disponible pour les livraisons.' :
+                'Vous êtes maintenant indisponible.',
+            'data' => [
+                'is_available' => $driver->is_available
+            ]
+        ]);
     }
 
     /**
-     * Estimation du temps en minutes
+     * Récupérer les nouvelles livraisons disponibles
      */
-    private function estimateTime($distanceKm): int
+    public function getNewDeliveries()
     {
-        return max(3, (int) round($distanceKm * 3));
+        $user = auth()->user();
+
+        if (!$user->isDriver()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès réservé aux drivers.'
+            ], 403);
+        }
+
+        $driver = $user->userable;
+
+        // Vérifier si le driver est disponible
+        if (!$driver->is_available) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous devez être disponible pour voir les nouvelles livraisons.'
+            ], 400);
+        }
+
+        // Récupérer les livraisons en attente
+        $newDeliveries = Delivery::pending()
+            ->with('client')
+            ->whereDoesntHave('driver') // Pas encore assignées
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $newDeliveries
+        ]);
+    }
+
+    /**
+     * Récupérer les statistiques du driver
+     */
+    private function getDriverStats($driverId)
+    {
+        return [
+            'total_deliveries' => Delivery::forDriver($driverId)->count(),
+            'completed_deliveries' => Delivery::forDriver($driverId)->where('status', 'delivered')->count(),
+            'pending_deliveries' => Delivery::forDriver($driverId)->whereIn('status', ['accepted', 'picked_up', 'in_transit'])->count(),
+            'total_earnings' => Delivery::forDriver($driverId)->where('status', 'delivered')->sum('price'),
+        ];
+    }
+
+    /**
+     * Mettre à jour le statut d'une livraison
+     */
+    public function updateDeliveryStatus(Request $request, $deliveryId)
+    {
+        $user = auth()->user();
+
+        if (!$user->isDriver()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès réservé aux drivers.'
+            ], 403);
+        }
+
+        $request->validate([
+            'status' => 'required|in:picked_up,in_transit,delivered,cancelled'
+        ]);
+
+        $driver = $user->userable;
+        $delivery = Delivery::forDriver($driver->id)->findOrFail($deliveryId);
+
+        try {
+            DB::beginTransaction();
+
+            $statusData = ['status' => $request->status];
+
+            // Mettre à jour les timestamps selon le statut
+            switch ($request->status) {
+                case 'picked_up':
+                    $statusData['picked_up_at'] = now();
+                    break;
+                case 'delivered':
+                    $statusData['delivered_at'] = now();
+                    break;
+            }
+
+            $delivery->update($statusData);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Statut de livraison mis à jour avec succès.',
+                'data' => $delivery->load('client')
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la mise à jour du statut: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Récupérer l'historique des livraisons du driver
+     */
+    public function getDeliveryHistory()
+    {
+        $user = auth()->user();
+
+        if (!$user->isDriver()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès réservé aux drivers.'
+            ], 403);
+        }
+
+        $driver = $user->userable;
+        $deliveries = Delivery::forDriver($driver->id)
+            ->with('client')
+            ->orderBy('created_at', 'desc')
+            ->get();
+
+        return response()->json([
+            'success' => true,
+            'data' => $deliveries
+        ]);
     }
 }

@@ -14,13 +14,46 @@ use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Validator;
 
 class AuthController extends Controller
 {
-    public function registerDriver(DriverRegisterRequest $request)
+    public function registerDriver(Request $request) // ← Enlevez DriverRegisterRequest temporairement
     {
         try {
+            // Validation manuelle temporaire
+            $validator = Validator::make($request->all(), [
+                'first_name' => 'required|string|max:255',
+                'last_name' => 'required|string|max:255',
+                'birth_date' => 'required|date',
+                'address' => 'required|string|max:500',
+                'phone' => 'required|string|unique:drivers,phone',
+                'email' => 'required|email|unique:users,email',
+                'password' => 'required|string|min:6',
+                'vehicle_type' => 'required|in:voiture,moto,camion',
+                'license_plate' => 'required|string|max:20',
+                'cni_photo' => 'required|image|max:2048',
+            ]);
+
+            if ($validator->fails()) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Erreur de validation',
+                    'errors' => $validator->errors()
+                ], 422);
+            }
+
             DB::beginTransaction();
+
+            // DEBUG: Vérifiez si le fichier arrive
+            \Log::info('Fichier reçu:', ['has_file' => $request->hasFile('cni_photo')]);
+
+            if (!$request->hasFile('cni_photo')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Le fichier CNI est requis.'
+                ], 422);
+            }
 
             // 1. Uploader la photo CNI
             $cniPath = $request->file('cni_photo')->store('cni_photos', 'public');
@@ -35,7 +68,8 @@ class AuthController extends Controller
                 'cni_photo_path' => $cniPath,
                 'vehicle_type' => $request->vehicle_type,
                 'license_plate' => $request->license_plate,
-                'is_approved' => false, // En attente d'approbation
+                'is_approved' => false,
+                'is_available' => false, // Pas disponible tant qu'approuvé
             ]);
 
             // 3. Créer l'utilisateur
@@ -47,7 +81,7 @@ class AuthController extends Controller
                 'role' => 'driver',
             ]);
 
-            // 4. Créer le token d'authentification
+            // 4. Créer le token
             $token = $user->createToken('auth_token')->plainTextToken;
 
             DB::commit();
@@ -61,17 +95,12 @@ class AuthController extends Controller
                     'token_type' => 'Bearer'
                 ]
             ], 201);
-        } catch (Exception $e) {
+        } catch (\Exception $e) {
             DB::rollBack();
 
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'inscription: ' . $e->getMessage(),
-                'error' => [
-                    'message' => $e->getMessage(),
-                    'file' => $e->getFile(),
-                    'line' => $e->getLine(),
-                ]
             ], 500);
         }
     }
@@ -206,31 +235,55 @@ class AuthController extends Controller
     }
 
     /**
-     * Logout utilisateur
+     * Logout utilisateur (Sanctum)
      */
-    public function logout()
+    public function logout(Request $request)
     {
-        auth('api')->logout(); // ← CORRECTION ICI
+        try {
+            // Révoquer le token actuel
+            $request->user()->currentAccessToken()->delete();
 
-        return response()->json([
-            'success' => true,
-            'message' => 'Déconnexion réussie.'
-        ]);
+            return response()->json([
+                'success' => true,
+                'message' => 'Déconnexion réussie.'
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Erreur lors de la déconnexion: ' . $e->getMessage()
+            ], 500);
+        }
     }
 
     /**
-     * Rafraîchir le token
+     * Rafraîchir le token (Sanctum)
      */
-    public function refresh()
+    public function refresh(Request $request)
     {
         try {
-            $token = auth('api')->refresh(); // ← CORRECTION ICI
-            return $this->respondWithToken($token);
-        } catch (JWTException $e) {
+            // Avec Sanctum, on crée simplement un nouveau token
+            $user = auth()->user();
+
+            // Révoquer l'ancien token (optionnel)
+            $request->user()->currentAccessToken()->delete();
+
+            // Créer un nouveau token
+            $newToken = $user->createToken('auth_token')->plainTextToken;
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Token rafraîchi avec succès',
+                'data' => [
+                    'access_token' => $newToken,
+                    'token_type' => 'Bearer',
+                    'user' => $user->load('userable')
+                ]
+            ]);
+        } catch (\Exception $e) {
             return response()->json([
                 'success' => false,
-                'message' => 'Token invalide ou expiré.'
-            ], 401);
+                'message' => 'Erreur lors du rafraîchissement du token: ' . $e->getMessage()
+            ], 500);
         }
     }
 

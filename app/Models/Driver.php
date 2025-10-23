@@ -25,6 +25,7 @@ class Driver extends Model
         'total_deliveries',
         'average_rating',
         'is_approved',
+        'is_available'
     ];
 
     protected $casts = [
