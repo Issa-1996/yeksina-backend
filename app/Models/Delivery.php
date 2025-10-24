@@ -27,6 +27,11 @@ class Delivery extends Model
         'accepted_at',
         'picked_up_at',
         'delivered_at',
+        'pickup_lat',      // ← AJOUT
+        'pickup_lng',      // ← AJOUT  
+        'delivery_lat',    // ← AJOUT
+        'delivery_lng',    // ← AJOUT
+        'distance_km',     // ← AJOUT
     ];
 
     protected $casts = [
@@ -35,6 +40,11 @@ class Delivery extends Model
         'accepted_at' => 'datetime',
         'picked_up_at' => 'datetime',
         'delivered_at' => 'datetime',
+        'pickup_lat' => 'decimal:8',
+        'pickup_lng' => 'decimal:8',
+        'delivery_lat' => 'decimal:8',
+        'delivery_lng' => 'decimal:8',
+        'distance_km' => 'decimal:2',
     ];
 
     /**

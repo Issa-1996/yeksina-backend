@@ -7,7 +7,9 @@ use App\Models\Client;
 use App\Models\Driver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
-
+use App\Services\GeocodingService;
+use App\Services\MatchingService;
+use Illuminate\Support\Facades\Log;
 
 /**
  * @OA\Tag(
@@ -94,9 +96,8 @@ class DeliveryController extends Controller
      *     )
      * )
      */
-    public function store(Request $request)
+    public function store(Request $request, GeocodingService $geocodingService)
     {
-        // Vérifier que l'utilisateur est un client
         if (!auth()->user()->isClient()) {
             return response()->json([
                 'success' => false,
@@ -122,21 +123,40 @@ class DeliveryController extends Controller
 
             $client = auth()->user()->userable;
 
-            // Calcul du prix basique
-            $basePrice = 1000; // Prix de base
-            $weightMultiplier = $request->package_weight * 200; // 200 FCFA par kg
-            $urgencyMultiplier = match ($request->urgency) {
-                'low' => 1.0,
-                'standard' => 1.2,
-                'urgent' => 1.5,
-                default => 1.2
-            };
+            // GÉOCODAGE des adresses
+            $pickupCoords = $geocodingService->geocodeAddress($request->pickup_address);
+            $deliveryCoords = $geocodingService->geocodeAddress($request->delivery_address);
 
-            $price = ($basePrice + $weightMultiplier) * $urgencyMultiplier;
+            if (!$pickupCoords || !$deliveryCoords) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Impossible de localiser les adresses. Veuillez vérifier les adresses.'
+                ], 422);
+            }
+
+            // CALCUL de la distance
+            $distance = $geocodingService->calculateDistance(
+                $pickupCoords['latitude'],
+                $pickupCoords['longitude'],
+                $deliveryCoords['latitude'],
+                $deliveryCoords['longitude']
+            );
+
+            // CALCUL du prix basé sur la distance
+            $price = $geocodingService->calculatePriceByDistance(
+                $distance,
+                $request->package_weight,
+                $request->urgency
+            );
 
             $delivery = Delivery::create([
                 'pickup_address' => $request->pickup_address,
+                'pickup_lat' => $pickupCoords['latitude'],
+                'pickup_lng' => $pickupCoords['longitude'],
                 'delivery_address' => $request->delivery_address,
+                'delivery_lat' => $deliveryCoords['latitude'],
+                'delivery_lng' => $deliveryCoords['longitude'],
+                'distance_km' => $distance,
                 'receiver_name' => $request->receiver_name,
                 'receiver_phone' => $request->receiver_phone,
                 'delivery_instructions' => $request->delivery_instructions,
@@ -145,12 +165,14 @@ class DeliveryController extends Controller
                 'package_description' => $request->package_description,
                 'package_weight' => $request->package_weight,
                 'urgency' => $request->urgency,
-                'price' => round($price, 2),
+                'price' => $price,
                 'client_id' => $client->id,
                 'status' => 'pending',
             ]);
 
             DB::commit();
+            // 🔥 NOUVEAU: LANCER LE MATCHING AUTOMATIQUE
+            $this->startMatchingProcess($delivery);
 
             return response()->json([
                 'success' => true,
@@ -159,11 +181,36 @@ class DeliveryController extends Controller
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la création de la livraison: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Lance le processus de matching après création d'une livraison
+     */
+    private function startMatchingProcess(Delivery $delivery): void
+    {
+        try {
+            $matchingService = new MatchingService();
+            $matchedDrivers = $matchingService->findDriversForDelivery($delivery);
+
+            if (!empty($matchedDrivers)) {
+                // Notifier les livreurs sélectionnés
+                $this->notifyMatchedDrivers($matchedDrivers, $delivery);
+
+                // Mettre à jour le statut de la livraison
+                $delivery->update(['status' => 'finding_driver']);
+
+                Log::info('✅ Matching réussi - Livraison: ' . $delivery->id . ' - Livreurs notifiés: ' . count($matchedDrivers));
+            } else {
+                Log::warning('❌ Aucun livreur trouvé - Livraison: ' . $delivery->id);
+                $delivery->update(['status' => 'no_driver_found']);
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ Erreur lors du matching - Livraison: ' . $delivery->id . ' - Error: ' . $e->getMessage());
         }
     }
 
@@ -215,6 +262,27 @@ class DeliveryController extends Controller
                 'success' => false,
                 'message' => 'Erreur lors de l\'acceptation de la livraison: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Notifie les livreurs sélectionnés (à compléter avec notifications push)
+     */
+    private function notifyMatchedDrivers(array $matchedDrivers, Delivery $delivery): void
+    {
+        foreach ($matchedDrivers as $matched) {
+            $driver = $matched['driver'];
+
+            Log::info('📲 Notification à livreur: ' . $driver->id, [
+                'score' => $matched['score'],
+                'livraison' => $delivery->id,
+                'prix' => $delivery->price
+            ]);
+
+            // TODO: Implémenter les notifications push
+            // $this->sendPushNotification($driver, $delivery);
+
+            // Pour l'instant, on log juste
         }
     }
 

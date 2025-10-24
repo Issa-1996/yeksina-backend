@@ -25,7 +25,10 @@ class Driver extends Model
         'total_deliveries',
         'average_rating',
         'is_approved',
-        'is_available'
+        'is_available',
+        'current_lat',
+        'current_lng',
+        'last_location_update',
     ];
 
     protected $casts = [
@@ -36,9 +39,29 @@ class Driver extends Model
         'current_balance' => 'decimal:2',
         'total_earnings' => 'decimal:2',
         'average_rating' => 'decimal:1',
+        'current_lat' => 'decimal:8',
+        'current_lng' => 'decimal:8',
+        'last_location_update' => 'datetime',
     ];
 
 
+    // Ajouter cette méthode pour mettre à jour la position
+    public function updateLocation($latitude, $longitude)
+    {
+        $this->update([
+            'current_lat' => $latitude,
+            'current_lng' => $longitude,
+            'last_location_update' => now(),
+        ]);
+    }
+
+    // Scope pour les livreurs avec position récente (< 10 minutes)
+    public function scopeWithRecentLocation($query, $minutes = 10)
+    {
+        return $query->whereNotNull('current_lat')
+            ->whereNotNull('current_lng')
+            ->where('last_location_update', '>=', now()->subMinutes($minutes));
+    }
 
     // Relation avec User
     public function user()
@@ -53,16 +76,16 @@ class Driver extends Model
     }
 
     // Scope pour les drivers en ligne
-    public function scopeOnline($query)
-    {
-        return $query->where('is_online', true);
-    }
+    // public function scopeOnline($query)
+    // {
+    //     return $query->where('is_online', true);
+    // }
 
     // Scope pour les drivers approuvés
-    public function scopeApproved($query)
-    {
-        return $query->where('is_approved', true);
-    }
+    // public function scopeApproved($query)
+    // {
+    //     return $query->where('is_approved', true);
+    // }
 
     // Scope pour les drivers proches (à implémenter avec PostGIS plus tard)
     public function scopeWithinRadius($query, $lat, $lng, $radiusKm = 5)
@@ -90,5 +113,42 @@ class Driver extends Model
         $this->current_balance += $amount;
         $this->total_earnings += max(0, $amount); // Seulement positif pour les gains
         $this->save();
+    }
+
+
+    // Ajouter ces méthodes dans la classe Driver
+
+    /**
+     * Scope pour les drivers en ligne
+     */
+    public function scopeOnline($query)
+    {
+        return $query->where('is_online', true);
+    }
+
+    /**
+     * Scope pour les drivers disponibles
+     */
+    public function scopeAvailable($query)
+    {
+        return $query->where('is_available', true);
+    }
+
+    /**
+     * Scope pour les drivers approuvés
+     */
+    public function scopeApproved($query)
+    {
+        return $query->where('is_approved', true);
+    }
+
+    /**
+     * Scope pour les drivers proches (à implémenter)
+     */
+    public function scopeNearby($query, $lat, $lng, $radius = 5)
+    {
+        // Pour l'instant, retourne tous les drivers
+        // À améliorer avec calcul de distance géospatiale
+        return $query;
     }
 }
