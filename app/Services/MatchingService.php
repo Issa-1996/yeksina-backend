@@ -14,6 +14,138 @@ class MatchingService
     private $minRating = 4.0;   // Note minimale
     private $maxDriversToNotify = 3; // Nombre max de livreurs à notifier
 
+
+    /**
+     * Trouve les meilleurs livreurs ET déclenche les notifications
+     */
+    public function findAndNotifyDrivers(Delivery $delivery): array
+    {
+        Log::info("🔍 DÉBUT MATCHING COMPLET - Livraison: {$delivery->id}");
+
+        // 1. Vérifier que la livraison est dans le bon état
+        if (!$delivery->isInState('finding_driver')) {
+            Log::warning("❌ Matching ignoré - Livraison {$delivery->id} dans le mauvais état: {$delivery->status}");
+            return [];
+        }
+
+        // 2. Récupérer les livreurs éligibles
+        $eligibleDrivers = $this->getEligibleDrivers($delivery);
+
+        if (empty($eligibleDrivers)) {
+            Log::warning("❌ Aucun livreur éligible trouvé pour livraison: {$delivery->id}");
+            $this->handleNoDriversFound($delivery);
+            return [];
+        }
+
+        Log::info("📊 Livreurs éligibles trouvés: " . count($eligibleDrivers));
+
+        // 3. Calculer les scores et sélectionner les meilleurs
+        $scoredDrivers = $this->calculateScores($eligibleDrivers, $delivery);
+        $rankedDrivers = $this->rankDrivers($scoredDrivers);
+        $topDrivers = array_slice($rankedDrivers, 0, $this->maxDriversToNotify);
+
+        // 4. Notifier les livreurs sélectionnés
+        $this->notifySelectedDrivers($topDrivers, $delivery);
+
+        Log::info("✅ MATCHING TERMINÉ - {$delivery->id} - Livreurs notifiés: " . count($topDrivers));
+
+        return $topDrivers;
+    }
+
+
+    /**
+     * Gère le cas où aucun livreur n'est trouvé
+     */
+    private function handleNoDriversFound(Delivery $delivery): void
+    {
+        try {
+            // Attendre un peu puis réessayer ou annuler
+            Log::info("⏳ Aucun livreur trouvé - Planification réessai pour: {$delivery->id}");
+
+            // Vous pouvez implémenter une logique de réessai ici
+            // Pour l'instant, on passe en état d'erreur
+            if ($delivery->canTransitionTo('no_driver_found')) {
+                $delivery->transitionTo('no_driver_found');
+            }
+        } catch (\Exception $e) {
+            Log::error("❌ Erreur gestion aucun livreur: " . $e->getMessage());
+        }
+    }
+
+    /**
+     * Notifie les livreurs sélectionnés
+     */
+    private function notifySelectedDrivers(array $drivers, Delivery $delivery): void
+    {
+        foreach ($drivers as $index => $driverData) {
+            $driver = $driverData['driver'];
+            $score = $driverData['score'];
+
+            Log::info("📲 Notification à livreur: {$driver->id}", [
+                'position' => $index + 1,
+                'score' => $score,
+                'livraison' => $delivery->id,
+                'prix' => $delivery->price,
+                'distance' => $this->calculateDistanceToPickup($driver, $delivery)
+            ]);
+
+            // TODO: Implémenter les notifications push
+            // $this->sendPushNotification($driver, $delivery, $score);
+
+            // Pour l'instant, on log juste
+            $this->logDriverNotification($driver, $delivery, $score, $index + 1);
+        }
+
+        Log::info("✅ Notifications envoyées à " . count($drivers) . " livreurs");
+    }
+
+    /**
+     * Log de notification (remplacera les vraies notifications plus tard)
+     */
+    private function logDriverNotification(Driver $driver, Delivery $delivery, float $score, int $position): void
+    {
+        $distance = $this->calculateDistanceToPickup($driver, $delivery);
+
+        Log::info("🎯 LIVREUR NOTIFIÉ - Position #{$position}", [
+            'livreur_id' => $driver->id,
+            'livreur_nom' => $driver->full_name,
+            'score' => $score,
+            'distance_km' => $distance,
+            'note' => $driver->average_rating,
+            'livraison_id' => $delivery->id,
+            'prix_livraison' => $delivery->price,
+            'adresse_pickup' => $delivery->pickup_address
+        ]);
+    }
+
+    /**
+     * Calcule la distance entre le livreur et le point de pickup
+     */
+    private function calculateDistanceToPickup(Driver $driver, Delivery $delivery): ?float
+    {
+        if (!$driver->current_lat || !$driver->current_lng) {
+            return null;
+        }
+
+        return $this->calculateRealDistance(
+            $driver->current_lat,
+            $driver->current_lng,
+            $delivery->pickup_lat,
+            $delivery->pickup_lng
+        );
+    }
+
+
+
+
+
+
+
+
+
+
+
+
     /**
      * Trouve les meilleurs livreurs pour une livraison
      */

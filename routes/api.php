@@ -45,6 +45,8 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('{id}', [DeliveryController::class, 'show']);
         Route::post('{id}/accept', [DeliveryController::class, 'acceptDelivery']);
         Route::post('{id}/status', [DeliveryController::class, 'updateStatus']); // ← NOUVELLE ROUTE
+        // 🔥 NOUVELLE ROUTE : Relancer le matching
+        Route::post('{id}/restart-matching', [DeliveryController::class, 'restartMatching']);
     });
 
     // Livreurs

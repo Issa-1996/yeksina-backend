@@ -149,6 +149,7 @@ class DeliveryController extends Controller
                 $request->urgency
             );
 
+            // Créer la livraison
             $delivery = Delivery::create([
                 'pickup_address' => $request->pickup_address,
                 'pickup_lat' => $pickupCoords['latitude'],
@@ -244,7 +245,15 @@ class DeliveryController extends Controller
                 ], 400);
             }
 
-            // 🔥 TRANSITION SÉCURISÉE AVEC OPTIONS
+            // Vérifier que la livraison est en attente d'acceptation
+            if (!$delivery->isInState('finding_driver')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cette livraison n\'est plus disponible.'
+                ], 400);
+            }
+
+            // 🔥 TRANSITION SÉCURISÉE AVEC ASSIGNATION DU DRIVER
             $delivery->transitionTo(Delivery::STATUS_ACCEPTED, [
                 'driver_id' => $driver->id
             ]);
@@ -255,6 +264,8 @@ class DeliveryController extends Controller
             //     'status' => 'accepted',
             //     'accepted_at' => now(),
             // ]);
+            // Mettre à jour la disponibilité du driver
+            $driver->update(['is_available' => false]);
 
             DB::commit();
 
@@ -269,6 +280,54 @@ class DeliveryController extends Controller
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de l\'acceptation de la livraison: ' . $e->getMessage()
+            ], 500);
+        }
+    }
+
+    /**
+     * Nouvelle méthode : Relancer la recherche de livreurs
+     */
+    public function restartMatching($id)
+    {
+        if (!auth()->user()->isClient()) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Accès non autorisé.'
+            ], 403);
+        }
+
+        try {
+            $delivery = Delivery::findOrFail($id);
+            $client = auth()->user()->userable;
+
+            // Vérifier que la livraison appartient au client
+            if ($delivery->client_id !== $client->id) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Cette livraison ne vous appartient pas.'
+                ], 403);
+            }
+
+            // Vérifier qu'on peut relancer le matching
+            if (!$delivery->canTransitionTo('finding_driver')) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Impossible de relancer la recherche dans l\'état actuel.'
+                ], 400);
+            }
+
+            // Relancer le matching
+            $delivery->transitionTo('finding_driver');
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Recherche de livreur relancée',
+                'data' => $delivery->fresh(['client', 'driver'])
+            ]);
+        } catch (\Exception $e) {
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
             ], 500);
         }
     }

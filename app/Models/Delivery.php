@@ -7,6 +7,8 @@ use Illuminate\Database\Eloquent\Model;
 use Illuminate\Support\Facades\Log;
 
 use App\Traits\StateMachine;
+// ✅ IMPORTANT: Ajouter le use pour MatchingService
+use App\Services\MatchingService;
 
 class Delivery extends Model
 {
@@ -331,35 +333,90 @@ class Delivery extends Model
     /**
      * Actions lors de l'acceptation par un livreur
      */
+    // private function onAccepted($driverId)
+    // {
+    //     if ($driverId) {
+    //         $this->driver_id = $driverId;
+    //     }
+
+    //     // Notifier le client
+    //     Log::info("✅ Livraison {$this->id} acceptée par driver: {$this->driver_id}");
+
+    //     // TODO: Notification push au client
+    // }
     private function onAccepted($driverId)
     {
         if ($driverId) {
             $this->driver_id = $driverId;
+            Log::info("✅ Livraison {$this->id} acceptée par driver: {$driverId}");
+
+            // TODO: Notifier le client que sa livraison est acceptée
         }
 
-        // Notifier le client
-        Log::info("✅ Livraison {$this->id} acceptée par driver: {$this->driver_id}");
-
-        // TODO: Notification push au client
+        // Arrêter les notifications aux autres livreurs
+        $this->cancelOtherDriverNotifications();
     }
+
+    /**
+     * 🔥 NOUVEAU : Annule les notifications aux autres livreurs
+     */
+    private function cancelOtherDriverNotifications()
+    {
+        Log::info("🚫 Annulation notifications aux autres livreurs - Delivery: {$this->id}");
+
+        // TODO: Implémenter l'annulation des notifications push
+        // Pour l'instant, on log juste
+    }
+
+    /**
+     * 🔥 NOUVEAU : Actions quand aucun livreur n'est trouvé
+     */
+    private function onNoDriverFound()
+    {
+        Log::warning("😞 Aucun livreur trouvé pour delivery: {$this->id}");
+
+        // TODO: Notifier le client
+        // TODO: Planifier une relance automatique plus tard
+    }
+
 
     /**
      * Démarre la recherche de livreur
      */
+    // private function startDriverMatching()
+    // {
+    //     Log::info("🔍 Début matching pour delivery: {$this->id}");
+
+    //     // Lancer le matching asynchrone
+    //     dispatch(function () {
+    //         $matchingService = new \App\Services\MatchingService();
+    //         $matchedDrivers = $matchingService->findDriversForDelivery($this);
+
+    //         if (empty($matchedDrivers)) {
+    //             // Aucun livreur trouvé après un certain temps
+    //             $this->transitionTo(self::STATUS_NO_DRIVER_FOUND);
+    //         }
+    //     });
+    // }
+    /**
+     * 🔥 NOUVEAU : Démarre la recherche de livreur via MatchingService
+     */
     private function startDriverMatching()
     {
-        Log::info("🔍 Début matching pour delivery: {$this->id}");
+        Log::info("🔍 Début matching automatique pour delivery: {$this->id}");
 
-        // Lancer le matching asynchrone
-        dispatch(function () {
-            $matchingService = new \App\Services\MatchingService();
-            $matchedDrivers = $matchingService->findDriversForDelivery($this);
+        try {
+            $matchingService = new MatchingService();
+            $matchedDrivers = $matchingService->findAndNotifyDrivers($this);
 
             if (empty($matchedDrivers)) {
-                // Aucun livreur trouvé après un certain temps
-                $this->transitionTo(self::STATUS_NO_DRIVER_FOUND);
+                Log::warning("⚠️  Aucun livreur notifié pour delivery: {$this->id}");
+            } else {
+                Log::info("✅ Matching réussi - {$this->id} - {$matchedDrivers} livreurs notifiés");
             }
-        });
+        } catch (\Exception $e) {
+            Log::error("❌ Erreur lors du matching - Delivery: {$this->id} - " . $e->getMessage());
+        }
     }
 
     /**
