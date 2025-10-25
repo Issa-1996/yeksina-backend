@@ -7,11 +7,34 @@ use App\Models\Client;
 use App\Models\Driver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use App\Services\GeocodingService;
+use App\Services\MatchingService;
+use Illuminate\Support\Facades\Log;
 
+/**
+ * @OA\Tag(
+ *     name="Deliveries",
+ *     description="Endpoints de gestion des livraisons"
+ * )
+ */
 class DeliveryController extends Controller
 {
     /**
-     * Liste des livraisons (filtrée par rôle)
+     * @OA\Get(
+     *     path="/deliveries",
+     *     tags={"Deliveries"},
+     *     summary="Liste des livraisons",
+     *     description="Récupère la liste des livraisons (filtrée selon le rôle)",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\Response(
+     *         response=200,
+     *         description="Liste des livraisons",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="data", type="array", @OA\Items(type="object"))
+     *         )
+     *     )
+     * )
      */
     public function index(Request $request)
     {
@@ -46,11 +69,35 @@ class DeliveryController extends Controller
     }
 
     /**
-     * Créer une nouvelle livraison (Client seulement)
+     * @OA\Post(
+     *     path="/deliveries",
+     *     tags={"Deliveries"},
+     *     summary="Créer une livraison",
+     *     description="Créer une nouvelle livraison (client seulement)",
+     *     security={{"bearerAuth":{}}},
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"pickup_address", "delivery_address", "package_description", "package_weight", "urgency"},
+     *             @OA\Property(property="pickup_address", type="string", example="Point E, Dakar"),
+     *             @OA\Property(property="delivery_address", type="string", example="Plateau, Dakar"),
+     *             @OA\Property(property="package_description", type="string", example="Documents importants"),
+     *             @OA\Property(property="package_weight", type="number", format="float", example=0.5),
+     *             @OA\Property(property="urgency", type="string", enum={"low", "standard", "urgent"}, example="standard")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Livraison créée avec succès"
+     *     ),
+     *     @OA\Response(
+     *         response=403,
+     *         description="Accès non autorisé"
+     *     )
+     * )
      */
-    public function store(Request $request)
+    public function store(Request $request, GeocodingService $geocodingService)
     {
-        // Vérifier que l'utilisateur est un client
         if (!auth()->user()->isClient()) {
             return response()->json([
                 'success' => false,
@@ -61,6 +108,11 @@ class DeliveryController extends Controller
         $request->validate([
             'pickup_address' => 'required|string|max:500',
             'delivery_address' => 'required|string|max:500',
+            'receiver_name' => 'required|string|max:255',
+            'receiver_phone' => 'required|string|max:20',
+            'delivery_instructions' => 'nullable|string|max:1000',
+            'sender_name' => 'nullable|string|max:255',
+            'sender_phone' => 'nullable|string|max:20',
             'package_description' => 'required|string|max:1000',
             'package_weight' => 'required|numeric|min:0.1|max:50',
             'urgency' => 'required|in:low,standard,urgent',
@@ -71,43 +123,97 @@ class DeliveryController extends Controller
 
             $client = auth()->user()->userable;
 
-            // Calcul du prix basique
-            $basePrice = 1000; // Prix de base
-            $weightMultiplier = $request->package_weight * 200; // 200 FCFA par kg
-            $urgencyMultiplier = match ($request->urgency) {
-                'low' => 1.0,
-                'standard' => 1.2,
-                'urgent' => 1.5,
-                default => 1.2
-            };
+            // GÉOCODAGE des adresses
+            $pickupCoords = $geocodingService->geocodeAddress($request->pickup_address);
+            $deliveryCoords = $geocodingService->geocodeAddress($request->delivery_address);
 
-            $price = ($basePrice + $weightMultiplier) * $urgencyMultiplier;
+            if (!$pickupCoords || !$deliveryCoords) {
+                return response()->json([
+                    'success' => false,
+                    'message' => 'Impossible de localiser les adresses. Veuillez vérifier les adresses.'
+                ], 422);
+            }
+
+            // CALCUL de la distance
+            $distance = $geocodingService->calculateDistance(
+                $pickupCoords['latitude'],
+                $pickupCoords['longitude'],
+                $deliveryCoords['latitude'],
+                $deliveryCoords['longitude']
+            );
+
+            // CALCUL du prix basé sur la distance
+            $price = $geocodingService->calculatePriceByDistance(
+                $distance,
+                $request->package_weight,
+                $request->urgency
+            );
 
             $delivery = Delivery::create([
                 'pickup_address' => $request->pickup_address,
+                'pickup_lat' => $pickupCoords['latitude'],
+                'pickup_lng' => $pickupCoords['longitude'],
                 'delivery_address' => $request->delivery_address,
+                'delivery_lat' => $deliveryCoords['latitude'],
+                'delivery_lng' => $deliveryCoords['longitude'],
+                'distance_km' => $distance,
+                'receiver_name' => $request->receiver_name,
+                'receiver_phone' => $request->receiver_phone,
+                'delivery_instructions' => $request->delivery_instructions,
+                'sender_name' => $request->sender_name ?? $client->first_name . ' ' . $client->last_name,
+                'sender_phone' => $request->sender_phone ?? $client->phone,
                 'package_description' => $request->package_description,
                 'package_weight' => $request->package_weight,
                 'urgency' => $request->urgency,
-                'price' => round($price, 2),
+                'price' => $price,
                 'client_id' => $client->id,
-                'status' => 'pending',
+                'status' => Delivery::STATUS_CREATED, // État initial
             ]);
 
+            // 🔥 DÉMARRER LA MACHINE À ÉTATS
+            $delivery->transitionTo(Delivery::STATUS_FINDING_DRIVER);
+
             DB::commit();
+            // 🔥 NOUVEAU: LANCER LE MATCHING AUTOMATIQUE
+            // $this->startMatchingProcess($delivery);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Livraison créée avec succès',
+                'message' => 'Livraison créée avec succès. Recherche de livreur en cours...',
                 'data' => $delivery->load('client')
             ], 201);
         } catch (\Exception $e) {
             DB::rollBack();
-
             return response()->json([
                 'success' => false,
                 'message' => 'Erreur lors de la création de la livraison: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+    /**
+     * Lance le processus de matching après création d'une livraison
+     */
+    private function startMatchingProcess(Delivery $delivery): void
+    {
+        try {
+            $matchingService = new MatchingService();
+            $matchedDrivers = $matchingService->findDriversForDelivery($delivery);
+
+            if (!empty($matchedDrivers)) {
+                // Notifier les livreurs sélectionnés
+                $this->notifyMatchedDrivers($matchedDrivers, $delivery);
+
+                // Mettre à jour le statut de la livraison
+                $delivery->update(['status' => 'finding_driver']);
+
+                Log::info('✅ Matching réussi - Livraison: ' . $delivery->id . ' - Livreurs notifiés: ' . count($matchedDrivers));
+            } else {
+                Log::warning('❌ Aucun livreur trouvé - Livraison: ' . $delivery->id);
+                $delivery->update(['status' => 'no_driver_found']);
+            }
+        } catch (\Exception $e) {
+            Log::error('❌ Erreur lors du matching - Livraison: ' . $delivery->id . ' - Error: ' . $e->getMessage());
         }
     }
 
@@ -138,12 +244,17 @@ class DeliveryController extends Controller
                 ], 400);
             }
 
-            // Mettre à jour la livraison
-            $delivery->update([
-                'driver_id' => $driver->id,
-                'status' => 'accepted',
-                'accepted_at' => now(),
+            // 🔥 TRANSITION SÉCURISÉE AVEC OPTIONS
+            $delivery->transitionTo(Delivery::STATUS_ACCEPTED, [
+                'driver_id' => $driver->id
             ]);
+
+            // Mettre à jour la livraison
+            // $delivery->update([
+            //     'driver_id' => $driver->id,
+            //     'status' => 'accepted',
+            //     'accepted_at' => now(),
+            // ]);
 
             DB::commit();
 
@@ -159,6 +270,85 @@ class DeliveryController extends Controller
                 'success' => false,
                 'message' => 'Erreur lors de l\'acceptation de la livraison: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+
+    // NOUVELLE MÉTHODE pour mettre à jour le statut
+    public function updateStatus(Request $request, $id)
+    {
+        $user = auth()->user();
+        $delivery = Delivery::findOrFail($id);
+
+        // Vérifier les permissions
+        if ($user->isDriver() && $delivery->driver_id !== $user->userable->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas assigné à cette livraison.'
+            ], 403);
+        }
+
+        if ($user->isClient() && $delivery->client_id !== $user->userable->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette livraison ne vous appartient pas.'
+            ], 403);
+        }
+
+        $request->validate([
+            'status' => 'required|in:picking_up,on_route,delivered,paid,cancelled',
+            'cancellation_reason' => 'required_if:status,cancelled|string|max:500'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $options = [];
+            if ($request->status === 'cancelled') {
+                $cancelledBy = $user->isDriver() ? 'driver' : 'client';
+                $options = [
+                    'cancelled_by' => $cancelledBy,
+                    'cancellation_reason' => $request->cancellation_reason
+                ];
+            }
+
+            // 🔥 TRANSITION SÉCURISÉE
+            $delivery->transitionTo($request->status, $options);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Statut mis à jour avec succès',
+                'data' => $delivery->fresh(['client', 'driver'])
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
+        }
+    }
+
+    /**
+     * Notifie les livreurs sélectionnés (à compléter avec notifications push)
+     */
+    private function notifyMatchedDrivers(array $matchedDrivers, Delivery $delivery): void
+    {
+        foreach ($matchedDrivers as $matched) {
+            $driver = $matched['driver'];
+
+            Log::info('📲 Notification à livreur: ' . $driver->id, [
+                'score' => $matched['score'],
+                'livraison' => $delivery->id,
+                'prix' => $delivery->price
+            ]);
+
+            // TODO: Implémenter les notifications push
+            // $this->sendPushNotification($driver, $delivery);
+
+            // Pour l'instant, on log juste
         }
     }
 

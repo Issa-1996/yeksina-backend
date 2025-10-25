@@ -4,6 +4,7 @@ use App\Http\Controllers\AdminController;
 use App\Http\Controllers\AuthController;
 use App\Http\Controllers\DeliveryController;
 use App\Http\Controllers\DriverController;
+use App\Http\Controllers\DriverLocationController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -43,6 +44,7 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::post('/', [DeliveryController::class, 'store']);
         Route::get('{id}', [DeliveryController::class, 'show']);
         Route::post('{id}/accept', [DeliveryController::class, 'acceptDelivery']);
+        Route::post('{id}/status', [DeliveryController::class, 'updateStatus']); // ← NOUVELLE ROUTE
     });
 
     // Livreurs
@@ -52,6 +54,9 @@ Route::middleware('auth:sanctum')->group(function () {
         Route::get('new-deliveries', [DriverController::class, 'getNewDeliveries']);
         Route::get('delivery-history', [DriverController::class, 'getDeliveryHistory']);
         Route::post('deliveries/{id}/status', [DriverController::class, 'updateDeliveryStatus']);
+        // Nouvelles routes de position
+        Route::post('location/update', [DriverLocationController::class, 'updateLocation']);
+        Route::get('location/current', [DriverLocationController::class, 'getCurrentLocation']);
     });
 });
 

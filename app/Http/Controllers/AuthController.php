@@ -16,8 +16,78 @@ use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 
+
+/**
+ * @OA\Info(
+ *     title="Yeksina Delivery API",
+ *     version="1.0.0",
+ *     description="API pour l'application de livraison Yeksina"
+ * )
+ * @OA\Server(
+ *     url="http://localhost:8000/api",
+ *     description="Serveur local"
+ * )
+ * @OA\SecurityScheme(
+ *     securityScheme="bearerAuth",
+ *     type="http",
+ *     scheme="bearer",
+ *     bearerFormat="JWT"
+ * )
+ */
+
+/**
+ * @OA\Tag(
+ *     name="Authentication",
+ *     description="Endpoints d'authentification"
+ * )
+ */
 class AuthController extends Controller
 {
+
+    /**
+     * @OA\Post(
+     *     path="/auth/driver/register",
+     *     tags={"Authentication"},
+     *     summary="Inscription d'un driver",
+     *     description="Inscription d'un nouveau driver avec upload de photo CNI",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\MediaType(
+     *             mediaType="multipart/form-data",
+     *             @OA\Schema(
+     *                 required={"first_name", "last_name", "birth_date", "address", "phone", "email", "password", "vehicle_type", "license_plate", "cni_photo"},
+     *                 @OA\Property(property="first_name", type="string", example="Pape"),
+     *                 @OA\Property(property="last_name", type="string", example="Diop"),
+     *                 @OA\Property(property="birth_date", type="string", format="date", example="1990-01-01"),
+     *                 @OA\Property(property="address", type="string", example="Dakar, Senegal"),
+     *                 @OA\Property(property="phone", type="string", example="+221771234567"),
+     *                 @OA\Property(property="email", type="string", format="email", example="driver@yeksina.com"),
+     *                 @OA\Property(property="password", type="string", format="password", example="password123"),
+     *                 @OA\Property(property="vehicle_type", type="string", enum={"voiture", "moto", "camion"}, example="moto"),
+     *                 @OA\Property(property="license_plate", type="string", example="DK-1234-AB"),
+     *                 @OA\Property(property="cni_photo", type="string", format="binary")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=201,
+     *         description="Inscription réussie",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Inscription réussie. Votre compte est en attente d'approbation."),
+     *             @OA\Property(property="data", type="object",
+     *                 @OA\Property(property="user", type="object"),
+     *                 @OA\Property(property="token", type="string", example="1|xxxxxxxxxxxxxxxx"),
+     *                 @OA\Property(property="token_type", type="string", example="Bearer")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=422,
+     *         description="Erreur de validation"
+     *     )
+     * )
+     */
     public function registerDriver(Request $request) // ← Enlevez DriverRegisterRequest temporairement
     {
         try {
@@ -106,6 +176,41 @@ class AuthController extends Controller
     }
 
 
+
+
+    /**
+     * @OA\Post(
+     *     path="/auth/login",
+     *     tags={"Authentication"},
+     *     summary="Connexion utilisateur",
+     *     description="Connexion pour tous les types d'utilisateurs",
+     *     @OA\RequestBody(
+     *         required=true,
+     *         @OA\JsonContent(
+     *             required={"phone_or_email", "password"},
+     *             @OA\Property(property="phone_or_email", type="string", example="admin@yeksina.com"),
+     *             @OA\Property(property="password", type="string", format="password", example="admin123")
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=200,
+     *         description="Connexion réussie",
+     *         @OA\JsonContent(
+     *             @OA\Property(property="success", type="boolean", example=true),
+     *             @OA\Property(property="message", type="string", example="Connexion réussie"),
+     *             @OA\Property(property="data", type="object",
+     *                 @OA\Property(property="user", type="object"),
+     *                 @OA\Property(property="token", type="string", example="3|xxxxxxxxxxxxxxxx"),
+     *                 @OA\Property(property="token_type", type="string", example="Bearer")
+     *             )
+     *         )
+     *     ),
+     *     @OA\Response(
+     *         response=401,
+     *         description="Identifiants incorrects"
+     *     )
+     * )
+     */
     public function registerClient(ClientRegisterRequest $request)
     {
         try {

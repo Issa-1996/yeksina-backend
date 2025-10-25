@@ -1,0 +1,336 @@
+{
+    "openapi": "3.0.0",
+    "info": {
+        "title": "Yeksina Delivery API",
+        "version": "1.0.0"
+    },
+    "servers": [
+        {
+            "url": "http://localhost:8000/api"
+        }
+    ],
+    "paths": {
+        "/auth/driver/register": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Inscription d'un driver",
+                "description": "Inscription d'un nouveau driver avec upload de photo CNI",
+                "operationId": "a4c65ef48a6a1a2a447ac76741931f00",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "required": [
+                                    "first_name",
+                                    "last_name",
+                                    "birth_date",
+                                    "address",
+                                    "phone",
+                                    "email",
+                                    "password",
+                                    "vehicle_type",
+                                    "license_plate",
+                                    "cni_photo"
+                                ],
+                                "properties": {
+                                    "first_name": {
+                                        "type": "string",
+                                        "example": "Pape"
+                                    },
+                                    "last_name": {
+                                        "type": "string",
+                                        "example": "Diop"
+                                    },
+                                    "birth_date": {
+                                        "type": "string",
+                                        "format": "date",
+                                        "example": "1990-01-01"
+                                    },
+                                    "address": {
+                                        "type": "string",
+                                        "example": "Dakar, Senegal"
+                                    },
+                                    "phone": {
+                                        "type": "string",
+                                        "example": "+221771234567"
+                                    },
+                                    "email": {
+                                        "type": "string",
+                                        "format": "email",
+                                        "example": "driver@yeksina.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "password123"
+                                    },
+                                    "vehicle_type": {
+                                        "type": "string",
+                                        "enum": [
+                                            "voiture",
+                                            "moto",
+                                            "camion"
+                                        ],
+                                        "example": "moto"
+                                    },
+                                    "license_plate": {
+                                        "type": "string",
+                                        "example": "DK-1234-AB"
+                                    },
+                                    "cni_photo": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Inscription réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Inscription réussie. Votre compte est en attente d'approbation."
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "user": {
+                                                    "type": "object"
+                                                },
+                                                "token": {
+                                                    "type": "string",
+                                                    "example": "1|xxxxxxxxxxxxxxxx"
+                                                },
+                                                "token_type": {
+                                                    "type": "string",
+                                                    "example": "Bearer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "422": {
+                        "description": "Erreur de validation"
+                    }
+                }
+            }
+        },
+        "/auth/login": {
+            "post": {
+                "tags": [
+                    "Authentication"
+                ],
+                "summary": "Connexion utilisateur",
+                "description": "Connexion pour tous les types d'utilisateurs",
+                "operationId": "a98c9c5f697ddab75f138dd953aabf4b",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "phone_or_email",
+                                    "password"
+                                ],
+                                "properties": {
+                                    "phone_or_email": {
+                                        "type": "string",
+                                        "example": "admin@yeksina.com"
+                                    },
+                                    "password": {
+                                        "type": "string",
+                                        "format": "password",
+                                        "example": "admin123"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "200": {
+                        "description": "Connexion réussie",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "message": {
+                                            "type": "string",
+                                            "example": "Connexion réussie"
+                                        },
+                                        "data": {
+                                            "properties": {
+                                                "user": {
+                                                    "type": "object"
+                                                },
+                                                "token": {
+                                                    "type": "string",
+                                                    "example": "3|xxxxxxxxxxxxxxxx"
+                                                },
+                                                "token_type": {
+                                                    "type": "string",
+                                                    "example": "Bearer"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Identifiants incorrects"
+                    }
+                }
+            }
+        },
+        "/deliveries": {
+            "get": {
+                "tags": [
+                    "Deliveries"
+                ],
+                "summary": "Liste des livraisons",
+                "description": "Récupère la liste des livraisons (filtrée selon le rôle)",
+                "operationId": "6071d3bb26f4848ae5e421ceaa1a7cc6",
+                "responses": {
+                    "200": {
+                        "description": "Liste des livraisons",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "properties": {
+                                        "success": {
+                                            "type": "boolean",
+                                            "example": true
+                                        },
+                                        "data": {
+                                            "type": "array",
+                                            "items": {
+                                                "type": "object"
+                                            }
+                                        }
+                                    },
+                                    "type": "object"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            },
+            "post": {
+                "tags": [
+                    "Deliveries"
+                ],
+                "summary": "Créer une livraison",
+                "description": "Créer une nouvelle livraison (client seulement)",
+                "operationId": "b585494cbe4a71f83177c0d8cb2925aa",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "required": [
+                                    "pickup_address",
+                                    "delivery_address",
+                                    "package_description",
+                                    "package_weight",
+                                    "urgency"
+                                ],
+                                "properties": {
+                                    "pickup_address": {
+                                        "type": "string",
+                                        "example": "Point E, Dakar"
+                                    },
+                                    "delivery_address": {
+                                        "type": "string",
+                                        "example": "Plateau, Dakar"
+                                    },
+                                    "package_description": {
+                                        "type": "string",
+                                        "example": "Documents importants"
+                                    },
+                                    "package_weight": {
+                                        "type": "number",
+                                        "format": "float",
+                                        "example": 0.5
+                                    },
+                                    "urgency": {
+                                        "type": "string",
+                                        "enum": [
+                                            "low",
+                                            "standard",
+                                            "urgent"
+                                        ],
+                                        "example": "standard"
+                                    }
+                                },
+                                "type": "object"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "201": {
+                        "description": "Livraison créée avec succès"
+                    },
+                    "403": {
+                        "description": "Accès non autorisé"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer"
+            }
+        }
+    },
+    "tags": [
+        {
+            "name": "Authentication",
+            "description": "Endpoints d'authentification"
+        },
+        {
+            "name": "Deliveries",
+            "description": "Endpoints de gestion des livraisons"
+        }
+    ]
+}
