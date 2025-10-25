@@ -167,16 +167,19 @@ class DeliveryController extends Controller
                 'urgency' => $request->urgency,
                 'price' => $price,
                 'client_id' => $client->id,
-                'status' => 'pending',
+                'status' => Delivery::STATUS_CREATED, // État initial
             ]);
+
+            // 🔥 DÉMARRER LA MACHINE À ÉTATS
+            $delivery->transitionTo(Delivery::STATUS_FINDING_DRIVER);
 
             DB::commit();
             // 🔥 NOUVEAU: LANCER LE MATCHING AUTOMATIQUE
-            $this->startMatchingProcess($delivery);
+            // $this->startMatchingProcess($delivery);
 
             return response()->json([
                 'success' => true,
-                'message' => 'Livraison créée avec succès',
+                'message' => 'Livraison créée avec succès. Recherche de livreur en cours...',
                 'data' => $delivery->load('client')
             ], 201);
         } catch (\Exception $e) {
@@ -241,12 +244,17 @@ class DeliveryController extends Controller
                 ], 400);
             }
 
-            // Mettre à jour la livraison
-            $delivery->update([
-                'driver_id' => $driver->id,
-                'status' => 'accepted',
-                'accepted_at' => now(),
+            // 🔥 TRANSITION SÉCURISÉE AVEC OPTIONS
+            $delivery->transitionTo(Delivery::STATUS_ACCEPTED, [
+                'driver_id' => $driver->id
             ]);
+
+            // Mettre à jour la livraison
+            // $delivery->update([
+            //     'driver_id' => $driver->id,
+            //     'status' => 'accepted',
+            //     'accepted_at' => now(),
+            // ]);
 
             DB::commit();
 
@@ -262,6 +270,64 @@ class DeliveryController extends Controller
                 'success' => false,
                 'message' => 'Erreur lors de l\'acceptation de la livraison: ' . $e->getMessage()
             ], 500);
+        }
+    }
+
+
+    // NOUVELLE MÉTHODE pour mettre à jour le statut
+    public function updateStatus(Request $request, $id)
+    {
+        $user = auth()->user();
+        $delivery = Delivery::findOrFail($id);
+
+        // Vérifier les permissions
+        if ($user->isDriver() && $delivery->driver_id !== $user->userable->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Vous n\'êtes pas assigné à cette livraison.'
+            ], 403);
+        }
+
+        if ($user->isClient() && $delivery->client_id !== $user->userable->id) {
+            return response()->json([
+                'success' => false,
+                'message' => 'Cette livraison ne vous appartient pas.'
+            ], 403);
+        }
+
+        $request->validate([
+            'status' => 'required|in:picking_up,on_route,delivered,paid,cancelled',
+            'cancellation_reason' => 'required_if:status,cancelled|string|max:500'
+        ]);
+
+        try {
+            DB::beginTransaction();
+
+            $options = [];
+            if ($request->status === 'cancelled') {
+                $cancelledBy = $user->isDriver() ? 'driver' : 'client';
+                $options = [
+                    'cancelled_by' => $cancelledBy,
+                    'cancellation_reason' => $request->cancellation_reason
+                ];
+            }
+
+            // 🔥 TRANSITION SÉCURISÉE
+            $delivery->transitionTo($request->status, $options);
+
+            DB::commit();
+
+            return response()->json([
+                'success' => true,
+                'message' => 'Statut mis à jour avec succès',
+                'data' => $delivery->fresh(['client', 'driver'])
+            ]);
+        } catch (\Exception $e) {
+            DB::rollBack();
+            return response()->json([
+                'success' => false,
+                'message' => $e->getMessage()
+            ], 400);
         }
     }
 
